@@ -1,0 +1,62 @@
+#!/bin/bash
+
+imgfg=$1
+if [ -z "$imgfg" ]; then
+  echo "Missing fg image name."
+  exit 1
+fi
+
+imgbg=$2
+if [ -z "$imgbg" ]; then
+  echo "Missing bg image name."
+  exit 1
+fi
+
+echo ""
+echo "Rendering $imgfg onto $imgbg"
+echo ""
+
+mkdir -p render
+{
+cat <<EOF
+(gimp-message-set-handler 1)
+(define (render-greenscreen _bg _fg _out)
+  (gimp-message "Loading images...")
+
+  (let* (
+      (image (car (gimp-file-load RUN-NONINTERACTIVE _bg _bg)))
+      (drawable1 (car (gimp-image-get-active-drawable image)))
+      (drawable2 (car (gimp-file-load-layer RUN-NONINTERACTIVE image _fg)))
+      (color (car (gimp-image-pick-color image drawable2 10 10 TRUE TRUE 10)))
+    )
+
+    (gimp-message "Creating layer...")
+    (gimp-image-insert-layer image drawable2 0 0)
+    (gimp-layer-set-mode drawable2 LAYER-MODE-NORMAL)
+    (gimp-image-set-active-layer image drawable2)
+
+    (gimp-message "Greenscreening...")
+    (gimp-layer-add-alpha drawable2)
+    (gimp-context-set-sample-threshold 0.125)
+    (gimp-image-select-color image CHANNEL-OP-ADD drawable2 color)
+    (gimp-drawable-edit-clear drawable2)
+
+    (gimp-message "Exporting image...")
+    (set! drawable1 (car (gimp-image-flatten image)))
+    (file-png-save RUN-NONINTERACTIVE image drawable1 _out _out 0 9 0 0 0 0 0)
+
+    (gimp-image-delete image)
+    (gimp-message "Done.")
+  )
+)
+EOF
+
+sfg=source/$imgfg
+sbg=background/$imgbg
+dst=render/$imgfg
+
+echo "(gimp-message \"Rendering: [[$sbg] + [$sfg]] -> [$dst]\")"
+echo "(render-greenscreen \"$sbg\" \"$sfg\" \"$dst\")"
+echo "(gimp-quit 0)"
+
+} | gimp-2.10 -i -b -
